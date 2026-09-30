@@ -58,9 +58,17 @@ def mean_and_spread(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return mean, spread
 
 
-def plot_metric(runs: dict[str, dict[int, list[dict]]], key: str, title: str, ylabel: str, output: Path, rolling: bool = False) -> None:
+def plot_metric(
+    runs: dict[str, dict[int, list[dict]]],
+    key: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+    rolling: bool = False,
+    algorithms: tuple[str, ...] = ("dqn", "double_dqn", "ddqn_per"),
+) -> None:
     fig, ax = plt.subplots(figsize=(9.2, 5.5), layout="constrained")
-    for algorithm in ("dqn", "double_dqn", "ddqn_per"):
+    for algorithm in algorithms:
         if algorithm not in runs:
             continue
         matrix = finite_matrix(runs[algorithm], key, rolling=rolling)
@@ -75,6 +83,32 @@ def plot_metric(runs: dict[str, dict[int, list[dict]]], key: str, title: str, yl
     ax.set(title=title, xlabel="Episodio", ylabel=ylabel)
     ax.grid(alpha=0.22)
     ax.legend(frameon=False)
+    fig.savefig(output, dpi=180)
+    plt.close(fig)
+
+
+def plot_per_instability(runs: dict[str, dict[int, list[dict]]], output: Path) -> None:
+    """Keep PER's large Q/target scale visible without flattening uniform baselines."""
+    if "ddqn_per" not in runs:
+        return
+    fig, axes = plt.subplots(2, 1, figsize=(9.2, 8.0), sharex=True, layout="constrained")
+    for ax, key, title, ylabel in (
+        (axes[0], "q_eval_mean", "Double DQN + PER: Q medio en estados fijos", "Media de maxₐ Q(s, a)"),
+        (axes[1], "target_mean", "Double DQN + PER: target medio por episodio", "Target medio"),
+    ):
+        matrix = finite_matrix(runs["ddqn_per"], key)
+        if matrix.size == 0:
+            continue
+        mean, spread = mean_and_spread(matrix)
+        x = np.arange(1, len(mean) + 1)
+        ax.plot(x, mean, color=COLORS["ddqn_per"], linewidth=2, label=LABELS["ddqn_per"])
+        count = np.isfinite(matrix).sum(axis=0)
+        band = np.where(count > 1, spread, np.nan)
+        ax.fill_between(x, mean - band, mean + band, color=COLORS["ddqn_per"], alpha=0.14, linewidth=0)
+        ax.set(title=title, ylabel=ylabel)
+        ax.grid(alpha=0.22)
+        ax.legend(frameon=False)
+    axes[-1].set_xlabel("Episodio")
     fig.savefig(output, dpi=180)
     plt.close(fig)
 
@@ -121,12 +155,13 @@ def main() -> None:
     )
     plot_metric(
         runs, "q_eval_mean", "Valor Q medio sobre los mismos 100 estados", "Media de maxₐ Q(s, a)",
-        args.output_dir / "fig_task2_q_values.png",
+        args.output_dir / "fig_task2_q_values.png", algorithms=("dqn", "double_dqn"),
     )
     plot_metric(
         runs, "target_mean", "Target de Bellman medio registrado por episodio", "Target medio",
-        args.output_dir / "fig_task2_targets.png",
+        args.output_dir / "fig_task2_targets.png", algorithms=("dqn", "double_dqn"),
     )
+    plot_per_instability(runs, args.output_dir / "fig_task2_per_instability.png")
     summarize(runs)
     print(f"Figures saved under {args.output_dir}")
 
